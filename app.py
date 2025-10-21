@@ -11,8 +11,8 @@ import os
 import logging
 import whisper
 import subprocess
-import os
 from tempfile import NamedTemporaryFile
+from googletrans import Translator
 
 
 logging.basicConfig(level=logging.INFO)
@@ -24,9 +24,15 @@ load_dotenv()
 app = FastAPI()
 
 templates = Jinja2Templates(directory="templates")
-logger.info("Loading Whisper model... (this may take a minute)")
+
+# Load Whisper base model (good for Tamil and English)
+logger.info("Loading Whisper base model... (this may take a minute)")
 model = whisper.load_model("base")
-logger.info("Whisper model loaded successfully ✅")
+logger.info("Whisper base model loaded successfully ✅")
+
+# Initialize translator
+translator = Translator()
+logger.info("Google Translator initialized ✅")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -34,60 +40,89 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY is not set in the .env file")
 
-def convert_to_wav(input_file, output_file):
-    subprocess.run([
-        "ffmpeg", "-i", input_file, "-ar", "16000", "-ac", "1", output_file
-    ], check=True)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-model = whisper.load_model("base")
-
-def convert_to_wav(input_path, output_path):
-    subprocess.run([
-        "ffmpeg", "-y", "-i", input_path, "-ar", "16000", "-ac", "1", output_path
-    ], check=True)
-
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-# ✅ Updated transcription endpoint using open-source Whisper
+# Updated transcription endpoint with Tamil to English translation
 @app.post("/transcribe_audio")
-async def transcribe_audio(audio: UploadFile = File(...)):
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    language: str = Form("en")
+):
     try:
+        logger.info(f"Transcribing audio - Selected language: {language}")
+        
         # Save uploaded file
         with NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
             temp_audio.write(await audio.read())
             temp_audio_path = temp_audio.name
 
-        # Convert to wav
+        # Convert to wav format (Whisper works best with 16kHz mono)
         wav_path = temp_audio_path.replace(".webm", ".wav")
-        subprocess.run(["ffmpeg", "-y", "-i", temp_audio_path, "-ar", "16000", "-ac", "1", wav_path], check=True)
+        try:
+            subprocess.run([
+                "ffmpeg", "-y", "-i", temp_audio_path, 
+                "-ar", "16000", "-ac", "1", wav_path
+            ], check=True, capture_output=True, stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFmpeg conversion error: {e.stderr.decode()}")
+            raise HTTPException(status_code=500, detail="Audio conversion failed")
 
-        # Transcribe
-        result = model.transcribe(wav_path)
-        transcript = result["text"]
+        # Always use the selected language for transcription
+        transcribe_options = {
+            "fp16": False,
+            "language": language
+        }
+        
+        result = model.transcribe(wav_path, **transcribe_options)
+        transcript = result["text"].strip()
 
-        # Cleanup
-        os.remove(temp_audio_path)
-        os.remove(wav_path)
+        logger.info(f"✅ Transcription successful")
+        logger.info(f"   Transcript: {transcript[:100]}...")
 
-        return {"transcript": transcript}
+        # Translate to English if needed
+        translated_text = transcript
+        translation_performed = False
+        
+        if language != "en":
+            try:
+                translated_text = translator.translate(transcript, src=language, dest="en").text
+                translation_performed = True
+            except Exception as e:
+                logger.error(f"Translation error: {str(e)}")
+                translated_text = transcript
+                translation_performed = False
 
+        # Cleanup temporary files
+        try:
+            os.remove(temp_audio_path)
+            os.remove(wav_path)
+        except Exception as e:
+            logger.warning(f"Could not delete temp files: {e}")
+
+        return {
+            "transcript": translated_text,
+            "original_transcript": transcript,
+            "detected_language": language,
+            "requested_language": language,
+            "translated": translation_performed
+        }
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg error: {str(e)}")
+        return {"error": f"Audio conversion failed. Please check FFmpeg installation."}
     except Exception as e:
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Transcription error: {traceback.format_exc()}")
         return {"error": f"Transcription failed: {str(e)}"}
 
     
 @app.post("/upload_and_query")
 async def upload_and_query(
     query: str = Form(...),
-    image: UploadFile = File(None)  # <-- image is optional now
+    image: UploadFile = File(None)
 ):
     try:
         messages = [{"role": "user", "content": []}]
@@ -156,6 +191,7 @@ async def upload_and_query(
         logger.error(f"An unexpected error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
