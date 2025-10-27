@@ -5,45 +5,88 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Analyze Image Application</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://kit.fontawesome.com/your-fontawesome-kit.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
+
 
 <body class="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-gray-300 font-sans">
 
     <div class="container mx-auto p-6">
         <div class="flex items-center justify-center mb-12">
-            <span class="text-6xl mr-4">📷</span>
+            <i class="fas fa-camera text-6xl text-gray-400 mr-4"></i>
             <h1 class="text-4xl font-bold text-purple-300 shadow-md">AI MEDICAL CHATBOT 24/7 ASSISTANCE</h1>
         </div>
+<button id="recordBtn">🎤 Record Voice</button>
+<audio id="audioPlayback" controls class="hidden"></audio>
 
-        <!-- Voice Recording Section -->
-        <div class="bg-white/10 backdrop-blur-md p-6 rounded-xl shadow-lg border border-white/20 mb-8">
-            <h2 class="text-xl font-semibold text-yellow-400 mb-4">🎤 Voice Input (English/Tamil)</h2>
-            <div class="flex flex-col gap-4">
-                <div class="flex gap-4 items-center">
-                    <select id="languageSelect" class="px-4 py-2 bg-gray-800 text-gray-300 rounded-md border border-gray-600">
-                        <option value="auto">Auto-Detect</option>
-                        <option value="en">English</option>
-                        <option value="ta">தமிழ் (Tamil)</option>
-                        <option value="hi">हिन्दी (Hindi)</option>
-                    </select>
-                    <button id="recordBtn" class="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-md transition-all">
-                        🎤 Record Voice
-                    </button>
-                    <span id="recordingStatus" class="hidden text-yellow-300 animate-pulse">Recording...</span>
-                </div>
-                <audio id="audioPlayback" controls class="hidden w-full"></audio>
-            </div>
-        </div>
+<script>
+const recordBtn = document.getElementById("recordBtn");
+const audioPlayback = document.getElementById("audioPlayback");
+
+let mediaRecorder;
+let audioChunks = [];
+
+recordBtn.addEventListener("click", async () => {
+    if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        // Start recording
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+
+        mediaRecorder.ondataavailable = (e) => {
+            audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+            audioChunks = [];
+            const audioUrl = URL.createObjectURL(audioBlob);
+            audioPlayback.src = audioUrl;
+            audioPlayback.classList.remove("hidden");
+
+            // Upload audio to backend
+            const formData = new FormData();
+            formData.append("audio", audioBlob, "recording.webm");
+
+            try {
+                recordBtn.textContent = "Transcribing... ⏳";
+                const response = await fetch("/transcribe_audio", {
+                    method: "POST",
+                    body: formData,
+                });
+                const result = await response.json();
+
+                if (result.transcript) {
+                    queryInput.value = result.transcript; // Fill text box with recognized text
+                } else {
+                    alert("❌ Transcription failed.");
+                }
+            } catch (error) {
+                console.error("Transcription error:", error);
+                alert("❌ Error during transcription.");
+            } finally {
+                recordBtn.textContent = "🎤 Record Voice";
+            }
+        };
+
+        mediaRecorder.start();
+        recordBtn.textContent = "⏹ Stop Recording";
+    } else {
+        mediaRecorder.stop();
+        recordBtn.textContent = "🎤 Record Voice";
+    }
+});
+</script>
+
         
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             
             <!-- Upload Image Card -->
             <div class="bg-white/10 backdrop-blur-md p-6 rounded-xl shadow-lg border border-white/20">
-                <h2 class="text-xl font-semibold text-purple-400 mb-4">📤 Upload Image</h2>
+                <h2 class="text-xl font-semibold text-purple-400 mb-4"> Upload Image</h2>
                 
                 <button id="upload-btn" class="w-full py-3 bg-purple-500 hover:bg-purple-600 text-white font-bold rounded-md transition-all">
-                    📁 Click to Upload
+                     Click to Upload
                 </button>
                 
                 <input type="file" id="image-upload" accept="image/*" class="hidden" />
@@ -55,11 +98,11 @@
 
             <!-- Ask Question Card -->
             <div class="bg-white/10 backdrop-blur-md p-6 rounded-xl shadow-lg border border-white/20">
-                <h2 class="text-xl font-semibold text-blue-400 mb-4">💬 Ask Question</h2>
-                <textarea id="query-input" rows="4" placeholder="Enter your queries here or use voice recording above..."
+                <h2 class="text-xl font-semibold text-blue-400 mb-4"> Ask Question</h2>
+                <textarea id="query-input" rows="4" placeholder="Enter your queries here..."
                     class="w-full p-3 bg-gray-800 text-gray-300 rounded-lg shadow"></textarea>
                 <button id="submit-query" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg mt-3 transition-all">
-                    🚀 Submit Query
+                     Submit Query
                 </button>
             </div>
 
@@ -69,13 +112,13 @@
             
             <!-- Llama Response -->
             <div class="bg-white/10 backdrop-blur-md p-6 rounded-xl shadow-lg border border-white/20">
-                <h2 class="text-xl font-semibold text-green-400">🤖 Scout Model Response</h2>
+                <h2 class="text-xl font-semibold text-green-400"> Llama-3.2-11b-vision Response</h2>
                 <div id="response-container-llama11b" class="hidden mt-4 bg-gray-800 p-4 rounded text-gray-300"></div>
             </div>
             
             <!-- Llava Response -->
             <div class="bg-white/10 backdrop-blur-md p-6 rounded-xl shadow-lg border border-white/20">
-                <h2 class="text-xl font-semibold text-green-400">🤖 Maverick Model Response</h2>
+                <h2 class="text-xl font-semibold text-green-400"> Llama-3.2-90b-vision Response</h2>
                 <div id="response-container-llama90b" class="hidden mt-4 bg-gray-800 p-4 rounded text-gray-300"></div>
             </div>
 
@@ -87,9 +130,9 @@
         </div>
     </div>
 
+
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Element references
             const uploadBtn = document.getElementById('upload-btn');
             const imageUpload = document.getElementById('image-upload');
             const displayImage = document.getElementById('display-image');
@@ -100,91 +143,6 @@
             const responseLlava = document.getElementById('response-container-llama90b');
             const errorContainer = document.getElementById('error-container');
             const errorText = document.getElementById('error-text');
-            
-            // Voice recording elements
-            const recordBtn = document.getElementById("recordBtn");
-            const audioPlayback = document.getElementById("audioPlayback");
-            const recordingStatus = document.getElementById("recordingStatus");
-            const languageSelect = document.getElementById("languageSelect");
-
-            let mediaRecorder;
-            let audioChunks = [];
-
-            // Voice Recording Functionality
-            recordBtn.addEventListener("click", async () => {
-                if (!mediaRecorder || mediaRecorder.state === "inactive") {
-                    try {
-                        // Start recording
-                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        mediaRecorder = new MediaRecorder(stream);
-
-                        mediaRecorder.ondataavailable = (e) => {
-                            audioChunks.push(e.data);
-                        };
-
-                        mediaRecorder.onstop = async () => {
-                            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-                            audioChunks = [];
-                            const audioUrl = URL.createObjectURL(audioBlob);
-                            audioPlayback.src = audioUrl;
-                            audioPlayback.classList.remove("hidden");
-
-                            // Upload audio to backend
-                            const formData = new FormData();
-                            formData.append("audio", audioBlob, "recording.webm");
-                            formData.append("language", languageSelect.value);
-
-                            try {
-                                recordBtn.textContent = "Transcribing... ⏳";
-                                recordBtn.disabled = true;
-                                
-                                const response = await fetch("/transcribe_audio", {
-                                    method: "POST",
-                                    body: formData,
-                                });
-                                
-                                const result = await response.json();
-
-                                if (result.transcript) {
-                                    queryInput.value = result.transcript;
-                                    
-                                    // Show translation info if translation was performed
-                                    if (result.translated) {
-                                        showError(`✅ Transcribed and translated to English!\n📝 Original (${result.detected_language}): ${result.original_transcript}`, 'success');
-                                    } else {
-                                        showError('✅ Transcription successful! You can now submit your query.', 'success');
-                                    }
-                                } else if (result.error) {
-                                    showError('❌ Transcription failed: ' + result.error);
-                                } else {
-                                    showError("❌ Transcription failed. Please try again.");
-                                }
-                            } catch (error) {
-                                console.error("Transcription error:", error);
-                                showError("❌ Error during transcription: " + error.message);
-                            } finally {
-                                recordBtn.textContent = "🎤 Record Voice";
-                                recordBtn.disabled = false;
-                                recordingStatus.classList.add("hidden");
-                            }
-                        };
-
-                        mediaRecorder.start();
-                        recordBtn.textContent = "⏹ Stop Recording";
-                        recordingStatus.classList.remove("hidden");
-                        
-                    } catch (error) {
-                        console.error("Microphone access error:", error);
-                        showError("❌ Could not access microphone. Please grant permission and try again.");
-                    }
-                } else {
-                    // Stop recording
-                    mediaRecorder.stop();
-                    mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                    recordBtn.textContent = "🎤 Record Voice";
-                    recordingStatus.classList.add("hidden");
-                }
-            });
 
             // Click to Upload button trigger
             uploadBtn.addEventListener('click', () => {
@@ -205,12 +163,13 @@
             });
 
             // Submit Query
+            // Submit Query
             submitQuery.addEventListener('click', async () => {
                 const image = imageUpload.files[0];
                 const query = queryInput.value.trim();
 
                 if (!query) {
-                    showError('⚠️ Please enter your query or record a voice message.');
+                    showError('⚠️ Please enter your query.');
                     return;
                 }
 
@@ -237,12 +196,16 @@
                         throw new Error(result.detail || 'An error occurred while processing your request.');
                     }
 
-                    // Show responses
-                    responseLlama.innerHTML = marked.parse(result.llama || 'No response from Scout model.');
+                    // Show text-only or image+text response
+                    responseLlama.innerHTML = marked.parse(result.llama || 'No response from LLaMA model.');
                     responseLlama.classList.remove('hidden');
 
-                    responseLlava.innerHTML = marked.parse(result.llava || 'No response from Maverick model.');
-                    responseLlava.classList.remove('hidden');
+                    if (result.llava) {
+                        responseLlava.innerHTML = marked.parse(result.llava);
+                        responseLlava.classList.remove('hidden');
+                    } else {
+                        responseLlava.classList.add('hidden');
+                    }
 
                     errorContainer.classList.add('hidden');
 
@@ -255,21 +218,13 @@
                 }
             });
 
-            function showError(message, type = 'error') {
+            
+
+            function showError(message) {
                 errorText.textContent = message;
-                errorText.style.whiteSpace = 'pre-line'; // Allow line breaks
-                errorContainer.classList.remove('hidden', 'bg-red-500', 'bg-green-500');
-                
-                if (type === 'success') {
-                    errorContainer.classList.add('bg-green-500');
-                    setTimeout(() => {
-                        errorContainer.classList.add('hidden');
-                    }, 5000); // Show for 5 seconds for translation info
-                } else {
-                    errorContainer.classList.add('bg-red-500');
-                    responseLlama.classList.add('hidden');
-                    responseLlava.classList.add('hidden');
-                }
+                errorContainer.classList.remove('hidden');
+                responseLlama.classList.add('hidden');
+                responseLlava.classList.add('hidden');
             }
         });
     </script>
